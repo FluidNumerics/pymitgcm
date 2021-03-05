@@ -6,10 +6,12 @@ import datetime
 import numpy as np
 import MITgcmutils as mitgcm
 import glob
+from scipy import interpolate
+from scipy.signal import convolve2d
 from pyevtk.hl import gridToVTK, pointsToVTK
 
 class pymitgcm:
-  def __init__(self,directory,deltaTclock=1.0,iterate=0,dateTimeStart=[2000,1,1,0,0,0],loadState=True,loadGrid=True):
+  def __init__(self,directory='null',deltaTclock=1.0,iterate=0,dateTimeStart=[2000,1,1,0,0,0],loadState=True,loadGrid=True):
 
     self.deltaTclock = deltaTclock
     self.dateTimeStart = datetime.datetime(dateTimeStart[0],
@@ -18,8 +20,36 @@ class pymitgcm:
                                            dateTimeStart[3],
                                            dateTimeStart[4],
                                            dateTimeStart[5])
+    # Initialize fields
+    self.iterate = iterate
     self.setDateTimeByIterate(iterate)
     self.directory = directory
+    self.nz = 0
+    self.ny = 0
+    self.nx = 0
+    self.xc = np.zeros(1) 
+    self.yc = np.zeros(1)
+    self.xg = np.zeros(1)
+    self.yg = np.zeros(1)
+    self.rf = np.zeros(1)
+    self.rc = np.zeros(1)
+    self.dxc = np.zeros(1)
+    self.dyc = np.zeros(1)
+    self.dxg = np.zeros(1)
+    self.dyg = np.zeros(1)
+    self.drf = np.zeros(1)
+    self.drc = np.zeros(1)
+    self.hfacc = np.zeros(1)
+    self.hfacs = np.zeros(1)
+    self.hfacw = np.zeros(1)
+    self.u = np.zeros(1) 
+    self.v = np.zeros(1)
+    self.w = np.zeros(1)
+    self.temperature = np.zeros(1)
+    self.salinity = np.zeros(1)
+    self.eta = np.zeros(1)
+    self.atmfield = np.zeros(1)
+#    self.pressure = mitgcm.mds.rdmds(self.directory+'/PH',iterate)
 
     if loadGrid :
       print('Loading Grid')
@@ -31,6 +61,7 @@ class pymitgcm:
     # Load the initial iterate
     if loadState :
       self.stateload(iterate)
+      self.nz, self.ny, self.nx = np.shape(self.temperature)
   
   def gridload(self):
       self.xc = mitgcm.mds.rdmds(self.directory+'/XC')
@@ -59,9 +90,360 @@ class pymitgcm:
     self.temperature = mitgcm.mds.rdmds(self.directory+'/T',iterate)
     self.salinity = mitgcm.mds.rdmds(self.directory+'/S',iterate)
     self.eta = mitgcm.mds.rdmds(self.directory+'/Eta',iterate)
-    self.pressure = mitgcm.mds.rdmds(self.directory+'/PH',iterate)
+#    self.pressure = mitgcm.mds.rdmds(self.directory+'/PH',iterate)
 
   #END stateload
+
+  def print_grid_size(self):
+
+    print( ' MITgcm Grid Size ' )
+    print( '==================' )
+    print( 'Nx = '+str(self.nx) )
+    print( 'Ny = '+str(self.ny) )
+    print( 'Nz = '+str(self.nz) )
+
+  #END print_grid_size
+
+  def print_field_statistics(self):
+
+    print('    MITgcm State Statistics    ')
+    print('===============================')
+    print('Min(Temp) : %d, %.3f' % (self.iterate, np.min(self.temperature)))
+    print('Max(Temp) : %d, %.3f' % (self.iterate, np.max(self.temperature)))
+    print('Min(Salt) : %d, %.3f' % (self.iterate, np.min(self.salinity)))
+    print('Max(Salt) : %d, %.3f' % (self.iterate, np.max(self.salinity)))
+    print('Min(U)    : %d, %.3f' % (self.iterate, np.min(self.u)))
+    print('Max(U)    : %d, %.3f' % (self.iterate, np.max(self.u)))
+    print('Min(V)    : %d, %.3f' % (self.iterate, np.min(self.v)))
+    print('Max(V)    : %d, %.3f' % (self.iterate, np.max(self.v)))
+    print('Min(W)    : %d, %.3f' % (self.iterate, np.min(self.w)))
+    print('Max(W)    : %d, %.3f' % (self.iterate, np.max(self.w)))
+    print('Min(Eta)  : %d, %.3f' % (self.iterate, np.min(self.eta)))
+    print('Max(Eta)  : %d, %.3f' % (self.iterate, np.max(self.eta)))
+    print('===============================')
+
+  #END print_field_statistics
+
+  def write_state_binary(self,path):
+
+    ext = str(self.iterate).zfill(10)+'.bin'
+
+    a = np.float32(self.temperature)
+    output_file = open(path+'/temperature.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.salinity)
+    output_file = open(path+'/salinity.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.u)
+    output_file = open(path+'/u.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.v)
+    output_file = open(path+'/v.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.w)
+    output_file = open(path+'/w.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.eta)
+    output_file = open(path+'/eta.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+
+  def write_boundary_state_binary(self,path):
+
+    ext = str(self.iterate).zfill(10)+'.bin'
+
+    # south
+    a = np.float32(np.squeeze(self.temperature[:,0,:]))
+    output_file = open(path+'/temperature.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.salinity[:,0,:]))
+    output_file = open(path+'/salinity.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.u[:,0,:]))
+    output_file = open(path+'/u.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.v[:,0,:]))
+    output_file = open(path+'/v.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.w[:,0,:]))
+    output_file = open(path+'/w.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.eta[0,:]))
+    output_file = open(path+'/eta.south.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    # north
+    a = np.float32(np.squeeze(self.temperature[:,-1,:]))
+    output_file = open(path+'/temperature.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.salinity[:,-1,:]))
+    output_file = open(path+'/salinity.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.u[:,-1,:]))
+    output_file = open(path+'/u.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.v[:,-1,:]))
+    output_file = open(path+'/v.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.w[:,-1,:]))
+    output_file = open(path+'/w.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.eta[-1,:]))
+    output_file = open(path+'/eta.north.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    # west
+    a = np.float32(np.squeeze(self.temperature[:,:,0]))
+    output_file = open(path+'/temperature.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.salinity[:,:,0]))
+    output_file = open(path+'/salinity.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.u[:,:,0]))
+    output_file = open(path+'/u.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.v[:,:,0]))
+    output_file = open(path+'/v.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.w[:,:,0]))
+    output_file = open(path+'/w.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.eta[:,0]))
+    output_file = open(path+'/eta.west.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    # east
+    a = np.float32(np.squeeze(self.temperature[:,:,-1]))
+    output_file = open(path+'/temperature.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.salinity[:,:,-1]))
+    output_file = open(path+'/salinity.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.u[:,:,-1]))
+    output_file = open(path+'/u.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.v[:,:,-1]))
+    output_file = open(path+'/v.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.w[:,:,-1]))
+    output_file = open(path+'/w.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.eta[:,-1]))
+    output_file = open(path+'/eta.east.'+ext, 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+
+  def subsample(self,north,south,east,west):
+
+    newself = pymitgcm(loadState=False,loadGrid=False)
+    newself.deltaTclock = self.deltaTclock
+    newself.dateTimeStart = self.dateTimeStart 
+    newself.directory = self.directory
+    newself.iterate = self.iterate
+
+    # Find the indices nearest to the subsample domain boundaries
+    x = np.squeeze( self.xc[0,:])
+    y = np.squeeze( self.yc[:,0])
+ 
+    i1 = np.argmin( np.abs(x-west) )
+    i2 = np.argmin( np.abs(x-east) )
+    j1 = np.argmin( np.abs(y-south) )
+    j2 = np.argmin( np.abs(y-north) )
+    
+    newself.nx = (i2-i1)
+    newself.ny = (j2-j1)
+    newself.nz = self.nz
+
+    newself.temperature = self.temperature[:,j1:j2,i1:i2]
+    newself.salinity = self.salinity[:,j1:j2,i1:i2]
+    newself.u = self.u[:,j1:j2,i1:i2]
+    newself.v = self.v[:,j1:j2,i1:i2]
+    newself.w = self.w[:,j1:j2,i1:i2]
+    newself.eta = self.eta[j1:j2,i1:i2]
+
+    if np.shape(self.atmfield) == np.shape(self.xc) :
+      newself.atmfield = self.atmfield[j1:j2,i1:i2]
+
+    return newself
+    
+
+  def refine(self,factor):
+
+    newself = pymitgcm(loadState=False,loadGrid=False)
+    newself.deltaTclock = self.deltaTclock
+    newself.dateTimeStart = self.dateTimeStart 
+    newself.directory = self.directory
+    newself.iterate = self.iterate
+    newself.nx = self.nx*factor
+    newself.ny = self.ny*factor
+    newself.nz = self.nz
+
+    # Create a computational grid  [0,1]x[0,1] with nx*ny points (source grid)
+    xi1 = np.linspace(0.0,1.0,num=self.nx)
+    xi2 = np.linspace(0.0,1.0,num=self.ny)
+
+    # Create a computational grid  [0,1]x[0,1] with (factor*nx)*(factor*ny) points (target grid)
+    xi1p = np.linspace(0.0,1.0,num=newself.nx)
+    xi2p = np.linspace(0.0,1.0,num=newself.ny)
+
+    # Eta (Free surface height)
+    var = np.squeeze(self.eta)
+    mask = self.hfacc[0,:,:]*0
+    mask[ self.hfacc[0,:,:] == 0.0 ] = 1.0
+
+    for j in range(self.ny):
+      for i in range(self.nx-1,0,-1):
+        if mask[j,i] == 1.0: 
+          var[j,i] = vlast
+        else:
+          vlast = var[j,i]
+    f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+    newself.eta = f(xi1p,xi2p)
+ 
+    newself.temperature = np.zeros([newself.nz,newself.ny,newself.nx])
+    newself.salinity = np.zeros([newself.nz,newself.ny,newself.nx])
+    newself.u = np.zeros([newself.nz,newself.ny,newself.nx])
+    newself.v = np.zeros([newself.nz,newself.ny,newself.nx])
+    newself.w = np.zeros([newself.nz,newself.ny,newself.nx])
+        
+    f = interpolate.interp2d(xi1,xi2,self.xc,kind='linear')
+    newself.xc = f(xi1p,xi2p)
+
+    f = interpolate.interp2d(xi1,xi2,self.yc,kind='linear')
+    newself.yc = f(xi1p,xi2p)
+
+    if np.shape(self.atmfield) == np.shape(self.xc) :
+      f = interpolate.interp2d(xi1,xi2,self.atmfield,kind='linear')
+      newself.atmfield = f(xi1p,xi2p)
+    
+    for k in range(newself.nz):
+
+      var = np.squeeze(self.temperature[k,:,:])
+      mask = self.hfacc[k,:,:]*0
+      mask[ self.hfacc[k,:,:] == 0.0 ] = 1.0
+
+      for j in range(self.ny):
+        for i in range(self.nx-1,0,-1):
+          if mask[j,i] == 1.0: 
+            var[j,i] = tlast
+          else:
+            tlast = var[j,i]
+        
+      f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+      newself.temperature[k,:,:] = f(xi1p,xi2p)
+
+      var = np.squeeze(self.salinity[k,:,:])
+      mask = self.hfacc[k,:,:]*0
+      mask[ self.hfacc[k,:,:] == 0.0 ] = 1.0
+
+      for j in range(self.ny):
+        for i in range(self.nx-1,0,-1):
+          if mask[j,i] == 1.0: 
+            var[j,i] = tlast
+          else:
+            tlast = var[j,i]
+
+      f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+      newself.salinity[k,:,:] = f(xi1p,xi2p)
+
+      var = np.squeeze(self.u[k,:,:])
+      mask = self.hfacw[k,:,:]*0
+      mask[ self.hfacw[k,:,:] == 0.0 ] = 1.0
+
+      for j in range(self.ny):
+        for i in range(self.nx-1,0,-1):
+          if mask[j,i] == 1.0: 
+            var[j,i] = tlast
+          else:
+            tlast = var[j,i]
+
+      f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+      newself.u[k,:,:] = f(xi1p,xi2p)
+
+      var = np.squeeze(self.v[k,:,:])
+      mask = self.hfacs[k,:,:]*0
+      mask[ self.hfacs[k,:,:] == 0.0 ] = 1.0
+
+      for j in range(self.ny):
+        for i in range(self.nx-1,0,-1):
+          if mask[j,i] == 1.0: 
+            var[j,i] = tlast
+          else:
+            tlast = var[j,i]
+
+      f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+      newself.v[k,:,:] = f(xi1p,xi2p)
+
+      var = np.squeeze(self.w[k,:,:])
+      mask = self.hfacc[k,:,:]*0
+      mask[ self.hfacc[k,:,:] == 0.0 ] = 1.0
+
+      for j in range(self.ny):
+        for i in range(self.nx-1,0,-1):
+          if mask[j,i] == 1.0: 
+            var[j,i] = tlast
+          else:
+            tlast = var[j,i]
+
+      f = interpolate.interp2d(xi1,xi2,var,kind='linear')
+      newself.w[k,:,:] = f(xi1p,xi2p)
+    
+    return newself
 
   def setDateTimeByIterate(self,iterate):
 
