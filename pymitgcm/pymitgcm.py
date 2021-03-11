@@ -150,6 +150,34 @@ class pymitgcm:
 
   #END write_atmosphere_binary
 
+  def write_grid_binary(self,path):
+    a = np.float32(self.xc)
+    output_file = open(path+'/xc.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.yc)
+    output_file = open(path+'/yc.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.dxc[0,:]))
+    output_file = open(path+'/dxc.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(np.squeeze(self.dyc[:,0]))
+    output_file = open(path+'/dyc.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = np.float32(self.drf)
+    output_file = open(path+'/drf.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+  #END write_grid_binary
+
   def write_state_binary(self,path):
 
     ext = str(self.iterate).zfill(10)+'.bin'
@@ -345,6 +373,14 @@ class pymitgcm:
       newself.w = self.w[:,j1:j2,i1:i2]
       newself.eta = self.eta[j1:j2,i1:i2]
 
+    newself.xc = self.xc[j1:j2,i1:i2]
+    newself.yc = self.yc[j1:j2,i1:i2]
+    newself.dxc = self.dxc[j1:j2,i1:i2]
+    newself.dyc = self.dyc[j1:j2,i1:i2]
+    # Copy over the vertical grid for now
+    newself.drf = self.drf
+    newself.drc = self.drc
+
     if self.atmset:
       newself.atmfield = self.atmfield[:,j1:j2,i1:i2]
 
@@ -378,6 +414,8 @@ class pymitgcm:
     newself.v = np.zeros([newself.nz,newself.ny,newself.nx])
     newself.w = np.zeros([newself.nz,newself.ny,newself.nx])
     newself.eta = np.zeros([newself.ny,newself.nx])
+    newself.dxc = np.zeros([newself.ny,newself.nx])
+    newself.dyc = np.zeros([newself.ny,newself.nx])
 
     # Eta (Free surface height)
     var = np.squeeze(self.eta)
@@ -393,11 +431,26 @@ class pymitgcm:
       f = interpolate.interp2d(xi1,xi2,var,kind='linear')
       newself.eta = f(xi1p,xi2p)
         
+    # Grid interpolation
     f = interpolate.interp2d(xi1,xi2,self.xc,kind='linear')
     newself.xc = f(xi1p,xi2p)
 
     f = interpolate.interp2d(xi1,xi2,self.yc,kind='linear')
     newself.yc = f(xi1p,xi2p)
+
+    for j in range(newself.ny):
+      for i in range(0,newself.nx-1):
+        newself.dxc[j,i] = newself.xc[j,i+1] - newself.xc[j,i]
+      newself.dxc[j,newself.nx-1] = newself.dxc[j,newself.nx-2]
+
+    for i in range(0,newself.nx):
+      for j in range(newself.ny-1):
+        newself.dyc[j,i] = newself.yc[j+1,i] - newself.yc[j,i]
+      newself.dyc[newself.ny-1,i] = newself.dxc[newself.ny-2,i]
+
+    # Copy over the vertical grid for now
+    newself.drf = self.drf
+    newself.drc = self.drc
 
     if self.atmset :
       nt = np.shape(self.atmfield)[0]
