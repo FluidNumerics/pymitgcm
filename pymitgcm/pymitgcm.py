@@ -16,6 +16,10 @@ class pymitgcm:
     self.atmset = False
     self.stateset = False
     self.deltaTclock = deltaTclock
+
+#    if self.directory:
+#        self.setDeltaTClock()
+
     self.dateTimeStart = datetime.datetime(dateTimeStart[0],
                                            dateTimeStart[1],
                                            dateTimeStart[2],
@@ -49,9 +53,10 @@ class pymitgcm:
     self.w = np.zeros(1)
     self.temperature = np.zeros(1)
     self.salinity = np.zeros(1)
+    self.pressure = np.zeros(1)
     self.eta = np.zeros(1)
     self.atmfield = np.zeros(1)
-#    self.pressure = mitgcm.mds.rdmds(self.directory+'/PH',iterate)
+    self.monstats = {}
 
     if loadGrid :
       print('Loading Grid')
@@ -65,6 +70,18 @@ class pymitgcm:
       self.stateset = True
       self.nz, self.ny, self.nx = np.shape(self.temperature)
   
+  def setDeltaTClock(self):
+      """Parses {self.directory}/input/data to obtain value for deltaTclock"""
+
+      with open("{}/input/data".format(self.directory),"r") as f:
+          data = f.readlines()
+
+      for d in data:
+          if "deltaTClock" in d:
+              self.deltaTClock = int(d.split("=")[-1].replace(",",""))
+
+  #END setDeltaTClock
+
   def gridload(self):
       self.xc = mitgcm.mds.rdmds(self.directory+'/XC')
       self.yc = mitgcm.mds.rdmds(self.directory+'/YC')
@@ -167,6 +184,16 @@ class pymitgcm:
 
     a = self.yc.astype('>f4')
     output_file = open(path+'/yc.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = self.xg.astype('>f4')
+    output_file = open(path+'/xg.bin', 'wb')
+    a.tofile(output_file)
+    output_file.close()
+
+    a = self.yg.astype('>f4')
+    output_file = open(path+'/yg.bin', 'wb')
     a.tofile(output_file)
     output_file.close()
 
@@ -362,8 +389,8 @@ class pymitgcm:
     newself.atmset = self.atmset
 
     # Find the indices nearest to the subsample domain boundaries
-    x = np.squeeze( self.xc[0,:])
-    y = np.squeeze( self.yc[:,0])
+    x = np.squeeze( self.xg[0,:])
+    y = np.squeeze( self.yg[:,0])
  
     i1 = np.argmin( np.abs(x-west) )
     i2 = np.argmin( np.abs(x-east) )
@@ -731,7 +758,7 @@ class pymitgcm:
 
   #END getIterateList
 
-  def monstats(self):
+  def setMonitorStatistics(self):
 
     stats = {'time_tsnumber':[],
              'time_secondsf':[],
@@ -785,7 +812,7 @@ class pymitgcm:
              'surfExpan_theta_mean':[],
              'surfExpan_salt_mean':[]}
 
-    with open(self.directory+'/STDOUT.0000', 'r') as fp:
+    with open(self.directory+'/run/STDOUT.0000', 'r') as fp:
       for line in fp:
         for var in stats.keys():
           if var in line:
@@ -801,6 +828,8 @@ class pymitgcm:
               'metric_name':var,
               'metric_value':stats[var][k]}
         output_payload['monitor_stats'].append(pl)
+
+    self.monstats = stats
 
     return output_payload
 
